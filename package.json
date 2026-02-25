@@ -1,0 +1,11 @@
+{
+    "name": "hamkaran-caller",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+      "call": "node index.js"
+    },
+    "dependencies": {
+      "form-data": "^4.0.1"
+    }
+  }
