@@ -1,86 +1,95 @@
-import FormData from 'form-data'
+import { pathToFileURL } from "node:url";
 
 const API_URL = "https://api.hamkaran.cloud/api/hamkaran/v1/send-pre-recorded";
+const REQUEST_TIMEOUT_MS = 15_000;
 
-const API_KEY = process.env.HAMKARAN_API_KEY;
-const SRC = process.env.HAMKARAN_SRC;
-const AUDIO_ID = process.env.HAMKARAN_AUDIO_ID;
-const MAX_CONCURRENT = 10;
+export const MAX_CONCURRENT = 10;
 
-if (!API_KEY || !SRC || !AUDIO_ID) {
-    console.error(
-        "missing env vars"
-    );
-    process.exit(1)
+function loadConfig() {
+    const apiKey = process.env.HAMKARAN_API_KEY;
+    const src = process.env.HAMKARAN_SRC;
+    const audioId = process.env.HAMKARAN_AUDIO_ID;
+
+    if (!apiKey || !src || !audioId) {
+        throw new Error(
+            "Missing required environment variables: HAMKARAN_API_KEY, HAMKARAN_SRC, HAMKARAN_AUDIO_ID",
+        );
+    }
+
+    return { apiKey, src, audioId };
 }
 
-//send a single call
-
-async function sendCall(dest) {
+export async function sendCall(dest, options = {}) {
+    const { apiKey, src, audioId } = options.config ?? loadConfig();
+    const fetchImpl = options.fetchImpl ?? fetch;
+    const startedAt = Date.now();
     const form = new FormData();
     form.append("dest", dest);
-    form.append("src", SRC);
-    form.append("audio", AUDIO_ID);
-    
-    const response = await fetch(API_URL, {
-        method: "POST",
-        headers: {
-            key: API_KEY,
-            ...form.getHeaders(),
-        },
-        body: form,
-    })
+    form.append("src", src);
+    form.append("audio", audioId);
 
+    const response = await fetchImpl(API_URL, {
+        method: "POST",
+        headers: { key: apiKey },
+        body: form,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
     const text = await response.text();
 
     let data;
     try {
         data = JSON.parse(text);
     } catch {
-        data = { raw: text};
+        data = { raw: text };
     }
 
-    return { dest, status: response.status, data}
+    return {
+        dest,
+        status: response.status,
+        latencyMs: Date.now() - startedAt,
+        data,
+    };
 }
 
-// send to multiple numbers
+export async function sendBatch(numbers, options = {}) {
+    const logger = options.logger ?? console;
+    const results = new Array(numbers.length);
+    let nextIndex = 0;
 
-async function sendBatch(numbers) {
-    if (numbers.length > MAX_CONCURRENT) {
-        console.warn(
-            `GOT ${numbers.length} numbers but limit is ${MAX_CONCURRENT}. Processing first ${MAX_CONCURRENT}`
-        )
-        numbers = numbers.slice(0, MAX_CONCURRENT);
-    }
+    async function worker() {
+        while (nextIndex < numbers.length) {
+            const index = nextIndex++;
 
-    console.log(`sending ${numbers.length} call(s)...\n`);
-
-    const results = await Promise.allSettled(numbers.map((n) => sendCall(n)));
-
-    const summary = results.map((r, i) => {
-        if (r.status === "fulfilled") {
-            const {dest, status, data} = r.value;
-            const ok = data.code === "1";
-            console.log(
-                `${ok ? "done" : "failed"} ${dest} -> ${data.msg || data.raw || "Unknown response"} ${data.actionIDUuid ? `(ID: ${data.actionIDUuid})` : ""}`
-            )
-
-            return r.value;
-        } else {
-            console.log(`failed ${numbers[i]} -> Error: ${r.reason.message}`);
-            return { dest: numbers[i], error: r.reason.message};
+            try {
+                results[index] = await sendCall(numbers[index], options);
+            } catch (error) {
+                results[index] = {
+                    dest: numbers[index],
+                    error: error instanceof Error ? error.message : "Unknown error",
+                };
+            }
         }
-    })
-    console.log(`\n📊 Done. ${summary.filter((s) => s.data?.code === "1").length}/${numbers.length} queued successfully.`)
-    return summary
+    }
+
+    const workerCount = Math.min(MAX_CONCURRENT, numbers.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+    results.forEach((result, index) => {
+        const ok = result.data?.code === "1";
+        logger.log(
+            `Call ${index + 1}/${numbers.length}: ${ok ? "queued" : "failed"}` +
+                `${result.status ? ` (HTTP ${result.status}, ${result.latencyMs}ms)` : ""}`,
+        );
+    });
+
+    const queued = results.filter((result) => result.data?.code === "1").length;
+    logger.log(`Done. ${queued}/${numbers.length} queued successfully.`);
+    return results;
 }
 
-
-// --- Main ---
-const numbers = process.argv.slice(2);
-
-if (numbers.length === 0) {
-  console.log(`
+export async function runCli(args = process.argv.slice(2)) {
+    if (args.length === 0) {
+        console.log(`
 Hamkaran Cloud Pre-Recorded Caller
 ───────────────────────────────────
 Usage:
@@ -91,9 +100,20 @@ Environment variables (required):
   HAMKARAN_SRC       Source number/extension
   HAMKARAN_AUDIO_ID  Pre-recorded audio ID (e.g. "844-001")
 
-Pass up to 10 phone numbers as arguments.
+Calls are submitted with at most ${MAX_CONCURRENT} concurrent requests.
 `);
-  process.exit(0);
+        return;
+    }
+
+    await sendBatch(args);
 }
 
-sendBatch(numbers);
+const isMainModule =
+    process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMainModule) {
+    runCli().catch((error) => {
+        console.error(error instanceof Error ? error.message : error);
+        process.exitCode = 1;
+    });
+}

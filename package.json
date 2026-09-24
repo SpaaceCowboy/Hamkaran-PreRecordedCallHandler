@@ -2,10 +2,12 @@
     "name": "hamkaran-caller",
     "version": "1.0.0",
     "type": "module",
-    "scripts": {
-      "call": "node index.js"
+    "engines": {
+        "node": ">=18.0.0"
     },
-    "dependencies": {
-      "form-data": "^4.0.1"
+    "scripts": {
+        "call": "node index.js",
+        "start": "node server.js",
+        "test": "node --test"
     }
-  }
+}

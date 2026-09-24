@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Hamkaran Call Queue</title>
+    <style>
+        :root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #eef2ff; background: #080b14; }
+        * { box-sizing: border-box; }
+        body { min-height: 100vh; margin: 0; padding: 48px 20px; background: radial-gradient(circle at 15% 0%, #172554 0, transparent 34rem), #080b14; }
+        main { width: min(860px, 100%); margin: 0 auto; }
+        .eyebrow { color: #7dd3fc; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; font-size: .75rem; }
+        h1 { margin: 10px 0 8px; font-size: clamp(2rem, 6vw, 3.75rem); letter-spacing: -.05em; }
+        .intro { max-width: 650px; margin: 0 0 28px; color: #a5b4cf; line-height: 1.6; }
+        .panel { padding: clamp(20px, 4vw, 36px); border: 1px solid #27324a; border-radius: 24px; background: rgba(13, 18, 32, .88); box-shadow: 0 28px 70px rgba(0, 0, 0, .35); }
+        label { display: block; margin-bottom: 10px; font-weight: 700; }
+        textarea { width: 100%; min-height: 240px; resize: vertical; border: 1px solid #35415c; border-radius: 14px; padding: 16px; color: #f8fafc; background: #080c17; font: 1rem/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
+        textarea:focus, button:focus-visible { outline: 3px solid #38bdf8; outline-offset: 3px; }
+        .meta, .actions, .summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .meta { margin: 10px 2px 22px; color: #94a3b8; font-size: .875rem; }
+        .error { color: #fda4af; }
+        button { min-height: 48px; border: 0; border-radius: 12px; padding: 0 22px; cursor: pointer; color: #06111b; background: #7dd3fc; font: inherit; font-weight: 800; }
+        button:hover { background: #bae6fd; }
+        button:disabled { cursor: wait; opacity: .55; }
+        .hint { color: #75839d; font-size: .84rem; }
+        #results { margin-top: 28px; }
+        .summary { margin-bottom: 12px; }
+        .summary h2 { margin: 0; font-size: 1.15rem; }
+        .badge { border-radius: 999px; padding: 6px 11px; color: #a7f3d0; background: #064e3b; font-size: .82rem; font-weight: 800; }
+        .list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+        .result { display: grid; grid-template-columns: minmax(130px, 1fr) 90px 2fr; gap: 14px; align-items: center; padding: 13px 15px; border: 1px solid #26324a; border-radius: 12px; background: #0b101d; }
+        .number { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; direction: ltr; }
+        .status { font-weight: 800; }
+        .success { color: #6ee7b7; }
+        .failure { color: #fda4af; }
+        .message { overflow-wrap: anywhere; color: #a5b4cf; font-size: .9rem; }
+        [hidden] { display: none !important; }
+        @media (max-width: 620px) { body { padding: 28px 14px; } .actions { align-items: stretch; flex-direction: column; } button { width: 100%; } .result { grid-template-columns: 1fr auto; } .message { grid-column: 1 / -1; } }
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+    </style>
+</head>
+<body>
+    <main>
+        <div class="eyebrow">Hamkaran Cloud</div>
+        <h1>Queue prerecorded calls.</h1>
+        <p class="intro">Paste one number per line, or separate numbers with commas, spaces, or semicolons. Duplicates are removed before submission.</p>
+
+        <section class="panel" aria-labelledby="form-title">
+            <form id="call-form">
+                <label id="form-title" for="numbers">Destination numbers</label>
+                <textarea id="numbers" name="numbers" dir="ltr" spellcheck="false" autocomplete="off" placeholder="09123456789&#10;09198765432" required></textarea>
+                <div class="meta">
+                    <span id="count">0 unique numbers</span>
+                    <span id="validation" class="error" role="alert"></span>
+                </div>
+                <div class="actions">
+                    <span class="hint">Maximum 500 numbers · 10 requests at a time</span>
+                    <button id="submit" type="submit">Queue calls</button>
+                </div>
+            </form>
+
+            <div id="results" hidden aria-live="polite">
+                <div class="summary">
+                    <h2>Submission results</h2>
+                    <span id="summary" class="badge"></span>
+                </div>
+                <ul id="result-list" class="list"></ul>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const form = document.querySelector("#call-form");
+        const input = document.querySelector("#numbers");
+        const count = document.querySelector("#count");
+        const validation = document.querySelector("#validation");
+        const submit = document.querySelector("#submit");
+        const results = document.querySelector("#results");
+        const summary = document.querySelector("#summary");
+        const resultList = document.querySelector("#result-list");
+
+        function tokens() {
+            return [...new Set(input.value.split(/[\s,;]+/u).map((value) => value.trim()).filter(Boolean))];
+        }
+
+        input.addEventListener("input", () => {
+            const total = tokens().length;
+            count.textContent = `${total} unique number${total === 1 ? "" : "s"}`;
+            validation.textContent = total > 500 ? "Maximum 500" : "";
+        });
+
+        function addResult(call) {
+            const item = document.createElement("li");
+            item.className = "result";
+
+            const number = document.createElement("span");
+            number.className = "number";
+            number.textContent = call.number;
+
+            const status = document.createElement("span");
+            status.className = `status ${call.ok ? "success" : "failure"}`;
+            status.textContent = call.ok ? "Queued" : "Failed";
+
+            const message = document.createElement("span");
+            message.className = "message";
+            message.textContent = call.message || (call.httpStatus ? `HTTP ${call.httpStatus}` : "No details");
+
+            item.append(number, status, message);
+            resultList.append(item);
+        }
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            validation.textContent = "";
+            results.hidden = true;
+            resultList.replaceChildren();
+            submit.disabled = true;
+            submit.textContent = "Submitting…";
+
+            try {
+                const response = await fetch("/api/calls", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ numbers: input.value }),
+                });
+                const body = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(body.error || `Request failed with HTTP ${response.status}`);
+                }
+
+                body.calls.forEach(addResult);
+                summary.textContent = `${body.queued}/${body.total} queued`;
+                results.hidden = false;
+            } catch (error) {
+                validation.textContent = error instanceof Error ? error.message : "Submission failed";
+            } finally {
+                submit.disabled = false;
+                submit.textContent = "Queue calls";
+            }
+        });
+    </script>
+</body>
+</html>
