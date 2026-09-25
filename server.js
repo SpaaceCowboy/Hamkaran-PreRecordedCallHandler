@@ -3,11 +3,16 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 import { sendBatch } from "./index.js";
+import {
+    extractWorkbookColumn,
+    inspectWorkbook,
+    MAX_WORKBOOK_BYTES,
+} from "./spreadsheet.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number.parseInt(process.env.PORT ?? "3005", 10);
 const MAX_BODY_BYTES = 64 * 1024;
-const MAX_NUMBERS = 500;
+const MAX_NUMBERS = 3_000;
 const PHONE_PATTERN = /^\+?\d{3,15}$/;
 const page = await readFile(new URL("./public/index.html", import.meta.url));
 
@@ -49,26 +54,38 @@ function sendJson(response, status, body) {
 }
 
 async function readJson(request) {
-    const chunks = [];
-    let size = 0;
-
-    for await (const chunk of request) {
-        size += chunk.length;
-        if (size > MAX_BODY_BYTES) {
-            throw new Error("Request body is too large");
-        }
-        chunks.push(chunk);
-    }
+    const buffer = await readBody(request, MAX_BODY_BYTES);
 
     try {
-        return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        return JSON.parse(buffer.toString("utf8"));
     } catch {
         throw new Error("Request body must be valid JSON");
     }
 }
 
+async function readBody(request, maxBytes) {
+    const chunks = [];
+    let size = 0;
+
+    for await (const chunk of request) {
+        size += chunk.length;
+        if (size > maxBytes) {
+            throw new Error("Request body is too large");
+        }
+        chunks.push(chunk);
+    }
+
+    return Buffer.concat(chunks);
+}
+
+function isCrossOrigin(request) {
+    return request.headers["sec-fetch-site"] && request.headers["sec-fetch-site"] !== "same-origin";
+}
+
 export function createApp(options = {}) {
     const batchSender = options.batchSender ?? sendBatch;
+    const workbookInspector = options.workbookInspector ?? inspectWorkbook;
+    const workbookColumnExtractor = options.workbookColumnExtractor ?? extractWorkbookColumn;
 
     return createServer(async (request, response) => {
         const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
@@ -86,7 +103,7 @@ export function createApp(options = {}) {
         }
 
         if (request.method === "POST" && url.pathname === "/api/calls") {
-            if (request.headers["sec-fetch-site"] && request.headers["sec-fetch-site"] !== "same-origin") {
+            if (isCrossOrigin(request)) {
                 sendJson(response, 403, { error: "Cross-origin requests are not allowed" });
                 return;
             }
@@ -116,6 +133,38 @@ export function createApp(options = {}) {
             } catch (error) {
                 const message = error instanceof Error ? error.message : "Unexpected error";
                 console.error(`Call submission failed: ${message}`);
+                sendJson(response, 400, { error: message });
+            }
+            return;
+        }
+
+        if (request.method === "POST" && url.pathname === "/api/import") {
+            if (isCrossOrigin(request)) {
+                sendJson(response, 403, { error: "Cross-origin requests are not allowed" });
+                return;
+            }
+
+            try {
+                const workbook = await readBody(request, MAX_WORKBOOK_BYTES);
+
+                if (url.searchParams.get("mode") === "inspect") {
+                    const worksheets = await workbookInspector(workbook);
+                    sendJson(response, 200, { worksheets });
+                    return;
+                }
+
+                const worksheetId = Number.parseInt(url.searchParams.get("worksheet") ?? "", 10);
+                const columnIndex = Number.parseInt(url.searchParams.get("column") ?? "", 10);
+                const hasHeader = url.searchParams.get("header") === "1";
+                const extracted = await workbookColumnExtractor(workbook, {
+                    worksheetId,
+                    columnIndex,
+                    hasHeader,
+                });
+                sendJson(response, 200, extracted);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : "Unable to read workbook";
+                console.error(`Workbook import failed: ${message}`);
                 sendJson(response, 400, { error: message });
             }
             return;

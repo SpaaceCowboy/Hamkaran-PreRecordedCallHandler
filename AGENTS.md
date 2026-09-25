@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository is a small Node.js ESM tool. `index.js` contains the Hamkaran client and CLI, `server.js` exposes the local HTTP interface, and `public/index.html` is the browser UI. `package-lock.json` must remain committed for reproducible installs. Keep vendor-call logic out of the UI and route it through the local server.
+This repository is a small Node.js ESM tool. `index.js` contains the Hamkaran client and CLI, `server.js` exposes the local HTTP interface, `spreadsheet.js` validates and reads Excel uploads, and `public/index.html` is the browser UI. `package-lock.json` must remain committed for reproducible installs. Keep vendor-call logic out of the UI and route it through the local server.
 
 ## Build, Test, and Development Commands
 

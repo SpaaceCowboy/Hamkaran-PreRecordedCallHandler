@@ -9,5 +9,8 @@
         "call": "node index.js",
         "start": "node server.js",
         "test": "node --test"
+    },
+    "dependencies": {
+        "read-excel-file": "9.1.0"
     }
 }

@@ -15,15 +15,32 @@
         .intro { max-width: 650px; margin: 0 0 28px; color: #a5b4cf; line-height: 1.6; }
         .panel { padding: clamp(20px, 4vw, 36px); border: 1px solid #27324a; border-radius: 24px; background: rgba(13, 18, 32, .88); box-shadow: 0 28px 70px rgba(0, 0, 0, .35); }
         label { display: block; margin-bottom: 10px; font-weight: 700; }
-        textarea { width: 100%; min-height: 240px; resize: vertical; border: 1px solid #35415c; border-radius: 14px; padding: 16px; color: #f8fafc; background: #080c17; font: 1rem/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
-        textarea:focus, button:focus-visible { outline: 3px solid #38bdf8; outline-offset: 3px; }
+        textarea, select, input[type="file"] { border: 1px solid #35415c; border-radius: 12px; color: #f8fafc; background: #080c17; }
+        textarea { width: 100%; min-height: 240px; resize: vertical; padding: 16px; font: 1rem/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
+        select, input[type="file"] { width: 100%; min-height: 48px; padding: 10px 12px; font: inherit; }
+        input[type="file"]::file-selector-button { margin-right: 12px; border: 0; border-radius: 8px; padding: 8px 12px; color: #dbeafe; background: #1e3a5f; font: inherit; font-weight: 700; }
+        textarea:focus, select:focus, input:focus-visible, button:focus-visible { outline: 3px solid #38bdf8; outline-offset: 3px; }
         .meta, .actions, .summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
         .meta { margin: 10px 2px 22px; color: #94a3b8; font-size: .875rem; }
         .error { color: #fda4af; }
         button { min-height: 48px; border: 0; border-radius: 12px; padding: 0 22px; cursor: pointer; color: #06111b; background: #7dd3fc; font: inherit; font-weight: 800; }
         button:hover { background: #bae6fd; }
         button:disabled { cursor: wait; opacity: .55; }
+        button.secondary { color: #dbeafe; background: #1e3a5f; }
+        button.secondary:hover { background: #244c7a; }
         .hint { color: #75839d; font-size: .84rem; }
+        .importer { margin-bottom: 28px; padding: 18px; border: 1px solid #26324a; border-radius: 16px; background: #0b101d; }
+        .importer h2 { margin: 0 0 6px; font-size: 1rem; }
+        .importer p { margin: 0; }
+        .file-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; margin-top: 14px; }
+        .import-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+        .import-options label { margin-bottom: 6px; font-size: .88rem; }
+        .header-option { display: flex; align-items: center; gap: 9px; grid-column: 1 / -1; min-height: 44px; margin: 0; color: #cbd5e1; font-weight: 500; }
+        .header-option input { width: 18px; height: 18px; }
+        .import-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; grid-column: 1 / -1; }
+        .import-status { min-height: 1.3em; margin-top: 10px !important; color: #a5b4cf; font-size: .86rem; }
+        .divider { display: flex; align-items: center; gap: 12px; margin: 0 0 22px; color: #64748b; font-size: .78rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+        .divider::before, .divider::after { content: ""; height: 1px; flex: 1; background: #27324a; }
         #results { margin-top: 28px; }
         .summary { margin-bottom: 12px; }
         .summary h2 { margin: 0; font-size: 1.15rem; }
@@ -36,7 +53,7 @@
         .failure { color: #fda4af; }
         .message { overflow-wrap: anywhere; color: #a5b4cf; font-size: .9rem; }
         [hidden] { display: none !important; }
-        @media (max-width: 620px) { body { padding: 28px 14px; } .actions { align-items: stretch; flex-direction: column; } button { width: 100%; } .result { grid-template-columns: 1fr auto; } .message { grid-column: 1 / -1; } }
+        @media (max-width: 620px) { body { padding: 28px 14px; } .actions, .import-footer { align-items: stretch; flex-direction: column; } .file-row, .import-options { grid-template-columns: 1fr; } .header-option, .import-footer { grid-column: 1; } button { width: 100%; } .result { grid-template-columns: 1fr auto; } .message { grid-column: 1 / -1; } }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
     </style>
 </head>
@@ -48,6 +65,37 @@
 
         <section class="panel" aria-labelledby="form-title">
             <form id="call-form">
+                <div class="importer">
+                    <h2>Import from Excel</h2>
+                    <p class="hint">Choose a .xlsx file, then select the worksheet and phone-number column. Store phone numbers as text in Excel to preserve leading zeros.</p>
+                    <div class="file-row">
+                        <div>
+                            <label for="workbook">Excel workbook</label>
+                            <input id="workbook" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                        </div>
+                        <button id="read-workbook" class="secondary" type="button">Read workbook</button>
+                    </div>
+                    <p id="import-status" class="import-status" role="status" aria-live="polite"></p>
+                    <div id="import-options" class="import-options" hidden>
+                        <div>
+                            <label for="worksheet">Worksheet</label>
+                            <select id="worksheet"></select>
+                        </div>
+                        <div>
+                            <label for="column">Phone-number column</label>
+                            <select id="column"></select>
+                        </div>
+                        <label class="header-option" for="has-header">
+                            <input id="has-header" type="checkbox" checked>
+                            First row contains column headings
+                        </label>
+                        <div class="import-footer">
+                            <button id="import-column" class="secondary" type="button">Load selected column</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider">or paste manually</div>
                 <label id="form-title" for="numbers">Destination numbers</label>
                 <textarea id="numbers" name="numbers" dir="ltr" spellcheck="false" autocomplete="off" placeholder="09123456789&#10;09198765432" required></textarea>
                 <div class="meta">
@@ -55,7 +103,7 @@
                     <span id="validation" class="error" role="alert"></span>
                 </div>
                 <div class="actions">
-                    <span class="hint">Maximum 500 numbers · 10 requests at a time</span>
+                    <span class="hint">Maximum 3,000 numbers · 10 requests at a time</span>
                     <button id="submit" type="submit">Queue calls</button>
                 </div>
             </form>
@@ -79,6 +127,17 @@
         const results = document.querySelector("#results");
         const summary = document.querySelector("#summary");
         const resultList = document.querySelector("#result-list");
+        const workbookInput = document.querySelector("#workbook");
+        const readWorkbook = document.querySelector("#read-workbook");
+        const importOptions = document.querySelector("#import-options");
+        const worksheetSelect = document.querySelector("#worksheet");
+        const columnSelect = document.querySelector("#column");
+        const hasHeader = document.querySelector("#has-header");
+        const importColumn = document.querySelector("#import-column");
+        const importStatus = document.querySelector("#import-status");
+
+        let workbookFile = null;
+        let worksheets = [];
 
         function tokens() {
             return [...new Set(input.value.split(/[\s,;]+/u).map((value) => value.trim()).filter(Boolean))];
@@ -87,7 +146,109 @@
         input.addEventListener("input", () => {
             const total = tokens().length;
             count.textContent = `${total} unique number${total === 1 ? "" : "s"}`;
-            validation.textContent = total > 500 ? "Maximum 500" : "";
+            validation.textContent = total > 3000 ? "Maximum 3,000" : "";
+        });
+
+        async function uploadWorkbook(query) {
+            const response = await fetch(`/api/import?${query}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+                body: workbookFile,
+            });
+            const body = await response.json();
+
+            if (!response.ok) {
+                throw new Error(body.error || `Import failed with HTTP ${response.status}`);
+            }
+
+            return body;
+        }
+
+        function populateColumns() {
+            const worksheet = worksheets.find((item) => item.id === Number(worksheetSelect.value));
+            columnSelect.replaceChildren();
+
+            for (const column of worksheet?.columns ?? []) {
+                const option = document.createElement("option");
+                option.value = String(column.index);
+                option.textContent = `${column.letter} — ${column.firstValue}`;
+                columnSelect.append(option);
+            }
+
+            importColumn.disabled = columnSelect.options.length === 0;
+        }
+
+        worksheetSelect.addEventListener("change", populateColumns);
+
+        readWorkbook.addEventListener("click", async () => {
+            const file = workbookInput.files?.[0];
+            importStatus.textContent = "";
+            importOptions.hidden = true;
+
+            if (!file || !file.name.toLowerCase().endsWith(".xlsx")) {
+                importStatus.textContent = "Choose a .xlsx file.";
+                return;
+            }
+            if (file.size > 10 * 1024 * 1024) {
+                importStatus.textContent = "The Excel file must be 10 MB or smaller.";
+                return;
+            }
+
+            workbookFile = file;
+            readWorkbook.disabled = true;
+            readWorkbook.textContent = "Reading…";
+
+            try {
+                const body = await uploadWorkbook("mode=inspect");
+                worksheets = body.worksheets;
+                worksheetSelect.replaceChildren();
+
+                for (const worksheet of worksheets) {
+                    const option = document.createElement("option");
+                    option.value = String(worksheet.id);
+                    option.textContent = `${worksheet.name} (${worksheet.rowCount} populated rows)`;
+                    worksheetSelect.append(option);
+                }
+
+                populateColumns();
+                importOptions.hidden = false;
+                importStatus.textContent = `${worksheets.length} worksheet${worksheets.length === 1 ? "" : "s"} found.`;
+            } catch (error) {
+                importOptions.hidden = true;
+                importStatus.textContent = error instanceof Error ? error.message : "Unable to read workbook";
+            } finally {
+                readWorkbook.disabled = false;
+                readWorkbook.textContent = "Read workbook";
+            }
+        });
+
+        importColumn.addEventListener("click", async () => {
+            if (!workbookFile || !worksheetSelect.value || !columnSelect.value) {
+                importStatus.textContent = "Select a workbook, worksheet, and column.";
+                return;
+            }
+
+            importColumn.disabled = true;
+            importColumn.textContent = "Loading…";
+            importStatus.textContent = "";
+
+            try {
+                const query = new URLSearchParams({
+                    worksheet: worksheetSelect.value,
+                    column: columnSelect.value,
+                    header: hasHeader.checked ? "1" : "0",
+                });
+                const body = await uploadWorkbook(query.toString());
+                input.value = body.values.join("\n");
+                input.dispatchEvent(new Event("input"));
+                input.focus();
+                importStatus.textContent = `Loaded ${body.values.length} value${body.values.length === 1 ? "" : "s"}. Review them before queueing calls.`;
+            } catch (error) {
+                importStatus.textContent = error instanceof Error ? error.message : "Unable to import column";
+            } finally {
+                importColumn.disabled = false;
+                importColumn.textContent = "Load selected column";
+            }
         });
 
         function addResult(call) {
